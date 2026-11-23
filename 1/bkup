@@ -1,0 +1,835 @@
+import speech_recognition as sr
+import os
+import edge_tts
+import asyncio
+import pygame
+import ollama
+import re
+import webbrowser
+import pyautogui
+import time
+import sys
+import io
+import shutil
+import threading
+import math
+import urllib.parse
+import psutil
+import customtkinter as ctk
+from PIL import Image, ImageTk
+import random
+import threading
+import vlc
+import yt_dlp
+import requests
+import json
+import wikipediaapi
+import screen_brightness_control as sbc
+import winsound
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+from comtypes import CLSCTX_ALL
+from ctypes import cast, POINTER
+from colorama import Fore, Back, Style, init
+
+# Initialize colorama
+init(autoreset=True)
+
+# --- External Feature Libraries (Internalized) ---
+try:
+    import cv2
+    import mediapipe as mp
+except:
+    pass
+
+# --- Config & Assets ---
+class Config:
+    VOICE_ID = "en-GB-RyanNeural" 
+    RESPONSE_AUDIO_FILE = "asura_response.mp3"
+    APP_MAP = {
+        "browser": "https://www.google.com",
+        "youtube": "https://www.youtube.com",
+        "chatgpt": "https://chat.openai.com",
+        "spotify": "spotify",
+        "notepad": "notepad",
+        "calculator": "calc",
+        "command prompt": "cmd",
+        "visual studio code": "code"
+    }
+
+class MusicEngine:
+    """Universal Invisible Streaming Engine wrapper (yt-dlp + VLC)."""
+    def __init__(self):
+        self.instance = vlc.Instance('--no-video --quiet')
+        self.player = self.instance.media_player_new()
+        self.is_playing = False
+
+    def play_song(self, query):
+        try:
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'noplaylist': True,
+                'quiet': True,
+                'default_search': 'ytsearch',
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(query, download=False)
+                if 'entries' in info:
+                    info = info['entries'][0]
+                url = info['url']
+                title = info.get('title', 'Unknown Track')
+            
+            media = self.instance.media_new(url)
+            self.player.set_media(media)
+            self.player.play()
+            self.is_playing = True
+            return True, f"Sonic stream established: {title}"
+        except Exception as e:
+            return False, f"Stream error: {e}"
+
+    def stop(self):
+        self.player.stop()
+        self.is_playing = False
+        return "Audio dampened."
+
+class AsuraGUI(ctk.CTk):
+    """Modern V3 Animated "Demon Core" GUI for ASURA."""
+    def __init__(self, assistant):
+        super().__init__()
+        self.assistant = assistant
+        self.title("ASURA - DEMON CORE CONTROL INTERFACE")
+        self.geometry("1100x850")
+        ctk.set_appearance_mode("Dark")
+        
+        # Configure Grid
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+        
+        # --- Top Header ---
+        self.header = ctk.CTkFrame(self, height=80, fg_color="#0a0000", border_width=1, border_color="#ff1a1a")
+        self.header.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 10))
+        
+        self.title_label = ctk.CTkLabel(self.header, text="ASURA: DEMON CORE v3.0", font=ctk.CTkFont(size=24, weight="bold", family="Consolas"))
+        self.title_label.pack(side="left", padx=30)
+        
+        self.status_label = ctk.CTkLabel(self.header, text="CORE_STATE: READY", font=ctk.CTkFont(family="Consolas"))
+        self.status_label.pack(side="right", padx=30)
+        
+        # --- Main Layout ---
+        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_frame.grid(row=1, column=0, sticky="nsew", padx=20)
+        self.main_frame.grid_columnconfigure(1, weight=3)
+        self.main_frame.grid_rowconfigure(0, weight=1)
+        
+        # Left Sidebar (Telemetry)
+        self.left_sidebar = ctk.CTkFrame(self.main_frame, width=250, border_width=1, border_color="#ff1a1a")
+        self.left_sidebar.grid(row=0, column=0, padx=(0, 10), sticky="nsew")
+        
+        self.telemetry_title = ctk.CTkLabel(self.left_sidebar, text="SYSTEM DIAGNOSTICS", font=ctk.CTkFont(size=16, weight="bold"))
+        self.telemetry_title.pack(pady=10)
+        
+        self.cpu_bar = ctk.CTkProgressBar(self.left_sidebar, progress_color="#ff1a1a")
+        self.cpu_bar.set(0)
+        self.cpu_bar.pack(padx=10, pady=5)
+        self.cpu_label = ctk.CTkLabel(self.left_sidebar, text="🧠 NEURAL LOAD: 0%")
+        self.cpu_label.pack()
+        
+        self.ram_bar = ctk.CTkProgressBar(self.left_sidebar, progress_color="#ff1a1a")
+        self.ram_bar.set(0)
+        self.ram_bar.pack(padx=10, pady=5)
+        self.ram_label = ctk.CTkLabel(self.left_sidebar, text="💾 SYNA-MEMORY: 0%")
+        self.ram_label.pack()
+
+        self.energy_bar = ctk.CTkProgressBar(self.left_sidebar, progress_color="#ffffff")
+        self.energy_bar.set(1.0)
+        self.energy_bar.pack(padx=10, pady=5)
+        self.energy_label = ctk.CTkLabel(self.left_sidebar, text="⚡ ENERGY: 100%")
+        self.energy_label.pack()
+        
+        # Central Chaos Canvas
+        self.canvas_frame = ctk.CTkFrame(self.main_frame, fg_color="black", border_width=2, border_color="#ff1a1a")
+        self.canvas_frame.grid(row=0, column=1, sticky="nsew")
+        
+        self.canvas = ctk.CTkCanvas(self.canvas_frame, bg="black", highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True)
+        
+        # Load Reference-Accurate Logo
+        try:
+            logo_path = r"C:/Users/sridh/.gemini/antigravity/brain/98b86e91-105b-48e5-9c4f-83c71932ac50/asura_logo_v3.jpg"
+            self.mask_img = Image.open(logo_path).resize((450, 450), Image.Resampling.LANCZOS)
+            self.mask_photo = ImageTk.PhotoImage(self.mask_img)
+            self.canvas_mask_id = self.canvas.create_image(0, 0, image=self.mask_photo, anchor="center")
+        except:
+            self.canvas_mask_id = self.canvas.create_text(0, 0, text="DEMON CORE", fill="red", font=("Consolas", 30))
+            
+        self.ring_angle = 0
+        self.orbit_angle = 0
+        self.pulse_val = 0
+        self.pulse_dir = 1
+        self.lightning_arcs = []
+        self.particles = [{"x": random.randint(0, 800), "y": random.randint(0, 800), "s": random.uniform(1, 4), "v": random.uniform(0.5, 2)} for _ in range(50)]
+        
+        # Right Sidebar (Modules)
+        self.right_sidebar = ctk.CTkFrame(self.main_frame, width=250, border_width=1, border_color="#ff1a1a")
+        self.right_sidebar.grid(row=0, column=2, padx=(10, 0), sticky="nsew")
+        
+        self.module_title = ctk.CTkLabel(self.right_sidebar, text="VOID MODULES", font=ctk.CTkFont(size=16, weight="bold"))
+        self.module_title.pack(pady=10)
+        
+        self.music_status = ctk.CTkLabel(self.right_sidebar, text="❌ Chaos Engine: Dormant", text_color="#ff4d4d")
+        self.music_status.pack()
+        self.vision_status = ctk.CTkLabel(self.right_sidebar, text="❌ Sight Array: Offline", text_color="#ff4d4d")
+        self.vision_status.pack()
+        self.neural_status = ctk.CTkLabel(self.right_sidebar, text="✅ Black Core: Online", text_color="#ffffff")
+        self.neural_status.pack()
+        
+        # --- Cognitive Stream (Transcript) ---
+        self.log_frame = ctk.CTkScrollableFrame(self, height=200, border_width=1, border_color="#ff4d4d", fg_color="#0a0000")
+        self.log_frame.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="ew")
+        
+        self.log_labels = []
+        
+        # Start Animation Loop
+        self.animate()
+
+    def add_log(self, category, message, color="white"):
+        timestamp = time.strftime("%H:%M:%S")
+        text = f"[{timestamp}] {category}: {message}"
+        label = ctk.CTkLabel(self.log_frame, text=text, text_color=color, font=ctk.CTkFont(family="Consolas"))
+        label.pack(anchor="w", padx=10)
+        self.log_labels.append(label)
+        if len(self.log_labels) > 20:
+            self.log_labels.pop(0).destroy()
+            
+    def animate(self):
+        w = self.canvas.winfo_width() / 2
+        h = self.canvas.winfo_height() / 2
+        
+        if w > 1:
+            # Pulsing Core logic
+            self.pulse_val += (0.02 + (0.01 if self.assistant.mic_status != "READY" else 0)) * self.pulse_dir
+            if self.pulse_val > 1.2 or self.pulse_val < 0.8:
+                self.pulse_dir *= -1
+            
+            # Update Centerpiece Position & Scale
+            scale = self.pulse_val
+            # Centerpiece position update
+            self.canvas.coords(self.canvas_mask_id, w, h)
+            
+            # --- Nano-Dust Particle System ---
+            self.canvas.delete("particles")
+            for p in self.particles:
+                p["y"] -= p["v"]
+                if p["y"] < 0: p["y"] = h * 2; p["x"] = random.randint(0, int(w*2))
+                # Draw particles
+                size = p["s"]
+                self.canvas.create_oval(p["x"]-size, p["y"]-size, p["x"]+size, p["y"]+size, fill="#330000", outline="", tags="particles")
+            
+            # --- Draw Ritual Rings (HUD) ---
+            self.canvas.delete("rings")
+            self.ring_angle = (self.ring_angle + (2 if self.assistant.mic_status != "READY" else 1)) % 360
+            
+            # Glow Effect (Layered Arcs)
+            self._draw_arc_ring(w, h, 285, "#220000", 4, self.ring_angle) # Background Glow
+            
+            # Outer Ring (Counter-Rotating Arcs)
+            self._draw_arc_ring(w, h, 280, "#440000", 1, self.ring_angle)
+            self._draw_arc_ring(w, h, 270, "#ff1a1a", 2, -self.ring_angle * 1.5)
+            
+            # Inner Decorative Rings
+            self.canvas.create_oval(w-230, h-230, w+230, h+230, outline="#330000", width=1, tags="rings")
+            self._draw_arc_ring(w, h, 220, "#ff4d4d", 1, self.ring_angle * 2)
+            
+            # --- Atmospheric Orbits (Planetary) ---
+            self.canvas.delete("orbits")
+            self.orbit_angle = (self.orbit_angle + 0.5) % 360
+            
+            # Planet 1 (Orbit Path)
+            px1 = w + math.cos(math.radians(self.orbit_angle)) * 350
+            py1 = h + math.sin(math.radians(self.orbit_angle)) * 350
+            self.canvas.create_oval(px1-15, py1-15, px1+15, py1+15, outline="#440000", fill="#1a0000", width=2, tags="orbits")
+            # Glow for planet
+            self.canvas.create_oval(px1-20, py1-20, px1+20, py1+20, outline="#ff1a1a", width=1, tags="orbits")
+            
+            # Planet 2 (Inner Fast Orbit)
+            px2 = w + math.sin(math.radians(-self.orbit_angle * 1.5)) * 250
+            py2 = h + math.cos(math.radians(-self.orbit_angle * 1.5)) * 250
+            self.canvas.create_oval(px2-10, py2-10, px2+10, py2+10, outline="#440000", fill="#1a0000", width=2, tags="orbits")
+
+            # --- Lightning Fractal Discharge ---
+            self.canvas.delete("lightning")
+            if self.assistant.mic_status != "READY" or random.random() > 0.95:
+                # Decide intensity
+                bolt_count = 5 if self.assistant.mic_status != "READY" else 1
+                
+                for _ in range(bolt_count):
+                    # Start from random point on the core boundary
+                    start_angle = random.uniform(0, 360)
+                    sx = w + math.cos(math.radians(start_angle)) * 50
+                    sy = h + math.sin(math.radians(start_angle)) * 50
+                    
+                    # Target a point on the outer rings
+                    target_angle = start_angle + random.uniform(-30, 30)
+                    tx = w + math.cos(math.radians(target_angle)) * 280
+                    ty = h + math.sin(math.radians(target_angle)) * 280
+                    
+                    # Fractal Branching
+                    # Pick a color based on "heat"
+                    bolt_color = random.choice(["white", "#ff1a1a", "#ff4d4d", "#00ffff"]) if self.assistant.mic_status == "PROCESSING" else random.choice(["white", "#ff1a1a"])
+                    
+                    self._draw_fractal_bolt(sx, sy, tx, ty, 5, 25, bolt_color)
+            
+            # --- Update UI Info ---
+            self.status_label.configure(text=f"CORE_STATE: {self.assistant.mic_status}")
+            sc = {"READY": "white", "LISTENING": "#ff1a1a", "SPEAKING": "#ffff00", "PROCESSING": "#00ffff"}
+            self.status_label.configure(text_color=sc.get(self.assistant.mic_status, "white"))
+            
+            # Dynamic Border Flicker
+            if random.random() > 0.9:
+                self.canvas_frame.configure(border_color="white" if random.random() > 0.5 else "#ff1a1a")
+            else:
+                self.canvas_frame.configure(border_color="#ff1a1a")
+            
+            # Update Stats
+            cpu = psutil.cpu_percent()
+            self.cpu_bar.set(cpu/100)
+            self.cpu_label.configure(text=f"🧠 NEURAL LOAD: {cpu}%")
+            
+            ram = psutil.virtual_memory().percent
+            self.ram_bar.set(ram/100)
+            self.ram_label.configure(text=f"💾 SYNA-MEMORY: {ram}%")
+            
+            battery = psutil.sensors_battery()
+            if battery:
+                self.energy_bar.set(battery.percent/100)
+                self.energy_label.configure(text=f"⚡ ENERGY: {battery.percent}%")
+            
+            # Update Modules
+            if self.assistant.music:
+                self.music_status.configure(text=f"{'✅' if self.assistant.music.is_playing else '❌'} Chaos Engine: {'Ignited' if self.assistant.music.is_playing else 'Dormant'}")
+            self.vision_status.configure(text=f"{'✅' if self.assistant.vision_active else '❌'} Sight Array: {'Active' if self.assistant.vision_active else 'Offline'}")
+
+        self.after(30, self.animate) # High refresh rate for lightning
+
+    def _draw_arc_ring(self, x, y, r, color, thickness, angle):
+        """Advanced helper to draw rotating segmented arcs (True HUD)."""
+        # Drawing 4 arcs to create a segmented ring look
+        for i in range(4):
+            start_ang = (angle + i * 90) % 360
+            self.canvas.create_arc(x-r, y-r, x+r, y+r, outline=color, width=thickness, style="arc", start=start_ang, extent=60, tags="rings")
+
+    def _draw_fractal_bolt(self, x1, y1, x2, y2, depth, displacement, color):
+        """Recursive fractal lightning generator."""
+        if depth <= 0:
+            # End of recursion, draw the line
+            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=1, capstyle="round", tags="lightning")
+            # Occasional micro-branch
+            if random.random() > 0.8:
+                bx = x2 + random.randint(-20, 20)
+                by = y2 + random.randint(-20, 20)
+                self.canvas.create_line(x2, y2, bx, by, fill=color, width=1, tags="lightning")
+        else:
+            mid_x = (x1 + x2) / 2
+            mid_y = (y1 + y2) / 2
+            mid_x += (random.random() - 0.5) * displacement
+            mid_y += (random.random() - 0.5) * displacement
+            self._draw_fractal_bolt(x1, y1, mid_x, mid_y, depth - 1, displacement / 2, color)
+            self._draw_fractal_bolt(mid_x, mid_y, x2, y2, depth - 1, displacement / 2, color)
+
+class AsuraAssistant:
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+        self.is_active = False
+        self.gui = None
+        self.mic_status = "READY"
+        self.vision_active = False
+        self.input_mode = "voice" # Default to voice
+        
+        # Safety settings
+        pyautogui.PAUSE = 0.5
+        pyautogui.FAILSAFE = True
+
+        # Initialize Music Engine
+        self.music = MusicEngine()
+        
+        # Proactive Monitoring State
+        self.monitoring_active = True
+        self.last_battery_alert = 0
+        self.last_cpu_alert = 0
+        self.monitor_thread = threading.Thread(target=self._monitor_system, daemon=True)
+        self.monitor_thread.start()
+
+        # Memory System
+        self.memory_path = "asura_memory.json"
+        self.memory = self._load_memory()
+
+        # Interruption System
+        self.is_interrupted = False
+        self.interruption_task = None
+        
+        # Persistent Mic Source for speed
+        self.mic_source = sr.Microphone()
+        with self.mic_source as source:
+            self.recognizer.adjust_for_ambient_noise(source, duration=0.1)
+        
+        # Audio Engine Persistence
+        try:
+            pygame.mixer.init()
+            self.hud_print("SYSTEM", "Audio Engine: Synchronized.")
+        except Exception as e:
+            print(f"[Mixer Error]: {e}")
+
+    def _monitor_system(self):
+        """Background thread to monitor system stats."""
+        while self.monitoring_active:
+            try:
+                battery = psutil.sensors_battery()
+                cpu = psutil.cpu_percent(interval=1)
+                
+                # Monitoring Logic
+                
+                # Battery Alert
+                if battery and not battery.power_plugged and battery.percent <= 20:
+                    current_time = time.time()
+                    if current_time - self.last_battery_alert > 600:
+                        self.hud_print("ALERT", f"Battery Level Critical: {battery.percent}%", Fore.RED)
+                        self.last_battery_alert = current_time
+                
+                # CPU Alert
+                if cpu > 90:
+                    current_time = time.time()
+                    if current_time - self.last_cpu_alert > 300:
+                        self.hud_print("ALERT", f"High CPU Load Detected: {cpu}%", Fore.RED)
+                        self.last_cpu_alert = current_time
+                
+            except Exception:
+                pass
+            
+            time.sleep(2) # Faster updates for the Live HUD
+
+    def _get_weather(self, city="London"):
+        """Get weather data for a city (using public wttr.in for no-key access)."""
+        try:
+            url = f"https://wttr.in/{city}?format=%C+%t"
+            response = requests.get(url)
+            if response.status_code == 200:
+                return f"The current weather in {city} is {response.text.strip()}."
+            return "Sir, I'm unable to reach the meteorological servers at the moment."
+        except Exception as e:
+            return f"Weather Error: {e}"
+
+    def _get_news(self):
+        """Get top news headlines (using public feed)."""
+        try:
+            # Using a simplified public news feed aggregator
+            url = "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en"
+            return "Sir, I can access the global news feed, but a specialized news API key would permit me to provide more targeted briefings."
+        except Exception as e:
+            return f"News Error: {e}"
+
+    def _get_wiki(self, topic):
+        """Get summary from Wikipedia."""
+        try:
+            wiki = wikipediaapi.Wikipedia('AsuraAssistant/1.0 (sridharsahu.nov07@gmail.com)', 'en')
+            page = wiki.page(topic)
+            if page.exists():
+                return page.summary[:500] + "..."
+            return f"Sir, I found no records matching '{topic}' in the centralized archives."
+        except Exception as e:
+            return f"Wiki Error: {e}"
+
+    def _set_volume(self, level):
+        """Set system volume (0-100)."""
+        try:
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            volume.SetMasterVolumeLevelScalar(float(level) / 100, None)
+            return True, f"Volume sequence complete: Set to {level}%."
+        except Exception as e:
+            return False, f"Volume Error: {e}"
+
+    def _set_brightness(self, level):
+        """Set screen brightness (0-100)."""
+        try:
+            sbc.set_brightness(int(level))
+            return True, f"Luminosity adjusted: {level}%."
+        except Exception as e:
+            return False, f"Brightness Error: {e}"
+
+    def _load_memory(self):
+        """Load persistent memory from JSON."""
+        try:
+            if os.path.exists(self.memory_path):
+                with open(self.memory_path, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        return data
+        except Exception as e:
+            print(f"[Memory Error]: {e}")
+        return {"user_name": "Sir", "preferences": {}}
+
+    def _save_memory(self):
+        """Save persistent memory to JSON."""
+        with open(self.memory_path, 'w') as f:
+            json.dump(self.memory, f, indent=4)
+
+    def _learn(self, key, value):
+        """Store a fact in memory."""
+        self.memory[key.lower()] = value
+        self._save_memory()
+        return f"Protocol engaged. I have recorded that {key} is {value}."
+
+    def _recall(self, key):
+        """Retrieve a fact from memory."""
+        return self.memory.get(key.lower(), f"Sir, I have no records concerning '{key}'.")
+
+    async def speak(self, text):
+        """Convert text to speech and play it. Supports interruption."""
+        if not text.strip(): return
+        
+        print(f"[Asura]: {text}")
+        self.is_interrupted = False
+        self.mic_status = "SPEAKING"
+        
+        try:
+            communicate = edge_tts.Communicate(text, Config.VOICE_ID)
+            await communicate.save(Config.RESPONSE_AUDIO_FILE)
+            
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+                
+            pygame.mixer.music.load(Config.RESPONSE_AUDIO_FILE)
+            pygame.mixer.music.set_volume(1.0)
+            pygame.mixer.music.play()
+            
+            while pygame.mixer.music.get_busy():
+                if self.is_interrupted:
+                    pygame.mixer.music.stop()
+                    self.hud_print("SYSTEM", "Handshake interrupted: Audio halted.", Fore.YELLOW)
+                    break
+                await asyncio.sleep(0.05)
+                
+            pygame.mixer.music.stop()
+            # We don't quit the mixer here to keep it persistent
+            
+        except Exception as e:
+            self.hud_print("ALERT", f"Vocal sync failure: {e}")
+        finally:
+            if os.path.exists(Config.RESPONSE_AUDIO_FILE):
+                try: os.remove(Config.RESPONSE_AUDIO_FILE)
+                except: pass
+            self.mic_status = "READY"
+
+    async def get_keyboard_input(self):
+        """Get input from keyboard asynchronously."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, input, "[Type command]: ")
+
+    async def listen(self, timeout=None, phrase_limit=5, is_interrupting=False):
+        """Listen to microphone input and return text asynchronously."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._listen_sync, timeout, phrase_limit, is_interrupting)
+
+    def _listen_sync(self, timeout, phrase_limit, is_interrupting=False):
+        """Synchronous part of microphone listening with zero-latency."""
+        try:
+            with self.mic_source as source:
+                if not is_interrupting:
+                    self.mic_status = "LISTENING"
+                
+                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
+                
+                if is_interrupting:
+                    self.is_interrupted = True
+                    return "INTERRUPT"
+                
+                text = self.recognizer.recognize_google(audio).lower()
+                return text
+        except sr.UnknownValueError:
+            return ""
+        except sr.WaitTimeoutError:
+            return ""
+        except Exception as e:
+            if not is_interrupting:
+                self.hud_print("ALERT", f"Mic capture error: {e}")
+            return ""
+        finally:
+            if not is_interrupting:
+                self.mic_status = "READY"
+
+    async def execute_action(self, action_tag):
+        """Parse and execute a single action tag asynchronously."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._execute_action_sync, action_tag)
+
+    def _execute_action_sync(self, action_tag):
+        """Parse and execute a single action tag like [[OPEN: notepad]]."""
+        print(f"[EXECUTING]: {action_tag}")
+        match = re.search(r"\[\[(.*?):\s*(.*?)\]\]", action_tag, re.IGNORECASE | re.DOTALL)
+        if not match: return ""
+        
+        action_type = match.group(1).upper()
+        value = match.group(2).strip()
+        
+        try:
+            if action_type == "OPEN":
+                app_cmd = Config.APP_MAP.get(value.lower())
+                if app_cmd:
+                    os.system(f"start {app_cmd}")
+                    time.sleep(1)
+                    return f"Opening {value}"
+                
+                found_path = self.find_app(value)
+                if found_path:
+                    try:
+                        os.startfile(found_path)
+                        return f"Opening {value}"
+                    except Exception:
+                        pass
+                
+                os.system(f"start {value}")
+                return f"Opening {value}"
+            
+            elif action_type == "CLOSE":
+                os.system(f"taskkill /f /im {value}.exe")
+                return f"Closing {value}"
+            
+            elif action_type == "TYPE":
+                clean_value = value.replace('\\n', '\n')
+                for i, line in enumerate(clean_value.split('\n')):
+                    if i > 0: pyautogui.press('enter')
+                    pyautogui.write(line, interval=0.01)
+                return "Typed text"
+            
+            elif action_type == "PRESS":
+                keys = value.split('+')
+                pyautogui.hotkey(*keys)
+                return f"Pressed {value}"
+            
+            elif action_type == "MUSIC":
+                if self.music:
+                    success, msg = self.music.play_song(value)
+                    return msg
+                return "Music integration not available."
+            
+            elif action_type == "STOP":
+                if self.music:
+                    return self.music.stop()
+                return "No music playing."
+            
+            elif action_type == "VOLUME":
+                success, msg = self._set_volume(value)
+                return msg
+            
+            elif action_type == "BRIGHTNESS":
+                success, msg = self._set_brightness(value)
+                return msg
+            
+            elif action_type == "WEATHER":
+                return self._get_weather(value)
+            
+            elif action_type == "NEWS":
+                return self._get_news()
+            
+            elif action_type == "WIKI":
+                return self._get_wiki(value)
+            
+            elif action_type == "SEARCH_WEB":
+                webbrowser.open(f"https://www.google.com/search?q={urllib.parse.quote(value)}")
+                return f"Searching web for: {value}"
+            
+            elif action_type == "LEARN":
+                if "|" in value:
+                    k, v = value.split("|", 1)
+                    return self._learn(k.strip(), v.strip())
+                return "Invalid Learn Protocol format. Use key|value."
+                
+            elif action_type == "RECALL":
+                return self._recall(value)
+            
+            return f"Action {action_type} executed."
+        except Exception as e:
+            return f"Action Error: {e}"
+
+    def find_app(self, app_name):
+        """Search for an application in common Windows paths."""
+        search_dirs = [
+            os.environ.get('ProgramData') + r'\Microsoft\Windows\Start Menu\Programs',
+            os.environ.get('AppData') + r'\Microsoft\Windows\Start Menu\Programs'
+        ]
+        for sdir in search_dirs:
+            if not os.path.exists(sdir): continue
+            for root, dirs, files in os.walk(sdir):
+                for file in files:
+                    if app_name.lower() in file.lower():
+                        return os.path.join(root, file)
+        return None
+
+    async def query_llm(self, prompt, image_data=None):
+        """Query Ollama with context and optional visual data."""
+        system_prompt = f"""You are ASURA, a powerful and cinematic AI assistant with a 'Demon Core' aesthetic. 
+Your personality is professional, intense, and proactive.
+Current Context: User is '{self.memory.get('user_name', 'Sir')}'. 
+System Stats: CPU {psutil.cpu_percent()}%, RAM {psutil.virtual_memory().percent}%.
+
+You can perform actions using double brackets:
+[[OPEN: app/url]], [[CLOSE: app]], [[TYPE: text]], [[PRESS: key1+key2]], [[MUSIC: song]], [[STOP: music]],
+[[VOLUME: 0-100]], [[BRIGHTNESS: 0-100]], [[WEATHER: city]], [[NEWS]], [[WIKI: topic]], [[SEARCH_WEB: query]],
+[[LEARN: key|value]], [[RECALL: key]], [[VISION: HANDS]] (for hand tracking).
+
+If asked to see or look at the screen, you MUST use the current visual context provided.
+Be concise but maintain the persona."""
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add visual context if available
+        content = prompt
+        if image_data:
+            messages.append({
+                "role": "user",
+                "content": content,
+                "images": [image_data]
+            })
+            model = "llava"
+        else:
+            messages.append({"role": "user", "content": content})
+            model = "mistral-nemo"
+
+        response = ollama.chat(model=model, messages=messages)
+        return response['message']['content']
+
+    async def capture_screen(self):
+        """Capture screen for visual analysis."""
+        screenshot = pyautogui.screenshot()
+        img_byte_arr = io.BytesIO()
+        screenshot.save(img_byte_arr, format='PNG')
+        return img_byte_arr.getvalue()
+
+    async def cinematic_startup(self):
+        """System initialization sequence."""
+        self.hud_print("CORE", "ASURA PROTOCOL INITIALIZED.")
+        self.hud_print("SYSTEM", "Synchronizing neural pathways...")
+        time.sleep(0.5)
+        self.hud_print("SYSTEM", f"External assets loaded. Vision: {'Active' if 'cv2' in sys.modules else 'Offline'}")
+        self.hud_print("SYSTEM", "Demon Core cooling stable.")
+
+    def hud_print(self, category, message, color=Fore.CYAN):
+        """Asura GUI printing with log support (Thread-Safe)."""
+        if self.gui:
+            # Schedule on GUI thread
+            self.gui.after(0, lambda: self.gui.add_log(category, message, color="white" if category != "ALERT" else "red"))
+        print(f"[{category}]: {message}")
+
+    async def run(self):
+        """Main execution loop."""
+        self.gui = AsuraGUI(self)
+        
+        # Start Assistant logic in a separate thread to keep GUI responsive
+        threading.Thread(target=self._run_assistant_sync, daemon=True).start()
+        
+        # Start GUI
+        self.gui.mainloop()
+
+    def _run_assistant_sync(self):
+        """Synchronous wrapper to run the async loop in a thread."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self._assistant_loop())
+
+    async def _assistant_loop(self):
+        await self.cinematic_startup()
+        
+        while True:
+            # 1. Listen for Wake Word or Active Input
+            if not self.is_active:
+                text = await self.listen(timeout=None, phrase_limit=3)
+                if "asura" in text.lower():
+                    self.hud_print("WAKE", "Asura awakened. Listening for command...")
+                    self.is_active = True
+                    # Let it roll into the next listen immediately
+                else:
+                    continue
+            
+            # 2. Get User Command
+            text = await self.listen(timeout=5, phrase_limit=8)
+            
+            if not text:
+                self.is_active = False
+                continue
+            
+            if "go to sleep" in text.lower():
+                self.hud_print("CORE", "Dormancy protocol engaged.")
+                await self.speak("Understood, Sir. Entering standby.")
+                self.is_active = False
+                continue
+
+            if any(cmd in text.lower() for cmd in ["deactivate", "shut down"]):
+                self.hud_print("CORE", "System termination sequence initiated.")
+                await self.speak("Asura system shutting down. Farewell, Sir.")
+                os._exit(0)
+
+            # Direct Vision/Capture checks
+            if "vision" in text.lower():
+                self.hud_print("SYSTEM", "Direct Vision Activation Protocol engaged.", Fore.GREEN)
+                await self.execute_action("[[VISION: HANDS]]")
+                self.is_active = True
+                continue
+
+            if any(cmd in text.lower() for cmd in ["capture screen", "screen capture"]):
+                self.hud_print("SYSTEM", "Direct Screen Capture Protocol engaged.", Fore.GREEN)
+                await self.capture_screen()
+                self.is_active = True
+                continue
+            
+            # 3. Process with AI
+            self.hud_print("SENSORS", "Capturing visual data...")
+            self.mic_status = "PROCESSING"
+            screen_data = await self.capture_screen()
+            
+            current_query = text
+            max_cycles = 5
+            cycle_count = 0
+            
+            while cycle_count < max_cycles:
+                cycle_count += 1
+                try:
+                    ai_response = await self.query_llm(current_query, screen_data)
+                    self.mic_status = "READY"
+                except Exception:
+                    ai_response = "I encountered a neural synchronization error."
+                    break
+                
+                monologue_match = re.search(r"<INTERNAL_MONOLOGUE>(.*?)(?:</INTERNAL_MONOLOGUE>|$)", ai_response, re.IGNORECASE | re.DOTALL)
+                if monologue_match:
+                    self.hud_print("THOUGHT", monologue_match.group(1).strip(), Fore.GREEN)
+                
+                actions = re.findall(r"\[\[.*?\]\]", ai_response, re.DOTALL)
+                action_results = []
+                for action in actions:
+                    result = await self.execute_action(action)
+                    if result:
+                        self.hud_print("ACTION", f"{action} -> {result}", Fore.CYAN)
+                        action_results.append(result)
+
+                clean_text = re.sub(r"<INTERNAL_MONOLOGUE>.*?(?:</INTERNAL_MONOLOGUE>|$)", "", ai_response, flags=re.IGNORECASE | re.DOTALL)
+                clean_text = re.sub(r"\[\[.*?\]\]", "", clean_text, flags=re.DOTALL)
+                
+                if clean_text.strip():
+                    await self.speak(clean_text)
+                
+                if action_results:
+                    context_update = "\n\n[SYSTEM: Action Results]\n" + "\n".join(action_results)
+                    current_query = f"Previous results: {context_update}\n\nContinue with the next step of the task if there is one."
+                    self.hud_print("CORE", f"Cycle {cycle_count} processed.")
+                else:
+                    break
+
+if __name__ == "__main__":
+    try:
+        app = AsuraAssistant()
+        asyncio.run(app.run())
+    except Exception as e:
+        print(f"FATAL ERROR: {e}")
+
+
+
